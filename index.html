@@ -2689,6 +2689,50 @@ body{background:linear-gradient(rgba(4,31,61,.28),rgba(4,31,61,.28)),url("https:
 }
 </style>
 
+
+<style>
+/* ===== FINAL FOOTER VISIBILITY FIX ===== */
+footer{
+  position:relative !important;
+  background:linear-gradient(135deg,#061a38 0%,#0b3565 100%) !important;
+  color:rgba(255,255,255,.88) !important;
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+  border-top:1px solid rgba(255,255,255,.14) !important;
+  padding:2.25rem 1.25rem !important;
+  text-align:center !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+footer p{
+  color:rgba(255,255,255,.88) !important;
+  font-size:clamp(.82rem,1.4vw,.95rem) !important;
+  line-height:1.75 !important;
+  letter-spacing:.035em !important;
+  text-shadow:0 1px 3px rgba(0,0,0,.28);
+}
+footer p:first-child{
+  margin-bottom:.55rem !important;
+}
+footer strong{
+  color:#fff !important;
+  font-weight:500 !important;
+}
+footer a{
+  color:#fff !important;
+  opacity:.92 !important;
+  text-decoration:none !important;
+  font-weight:400 !important;
+}
+footer a:hover{
+  opacity:1 !important;
+  text-decoration:underline !important;
+}
+@media(max-width:600px){
+  footer{padding:1.8rem 1rem !important;}
+  footer p{font-size:.8rem !important;line-height:1.65 !important;}
+}
+</style>
+
 </head>
 <body>
 
@@ -3675,8 +3719,8 @@ document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
 */
 const SOCIAL_STATS_ENDPOINT = 'https://script.google.com/macros/s/AKfycbw1esnzba3KXlRU3qx8JRxchrNuu1Om7xOF13khM3KFWiNCQU5yN8S7JdeWQ36Ie4k/exec';
 const SOCIAL_REFRESH_MS = 24 * 60 * 60 * 1000;
-const SOCIAL_CACHE_KEY = 'g2g_social_stats_v2';
-const SOCIAL_CACHE_TIME_KEY = 'g2g_social_stats_last_fetch_v2';
+const SOCIAL_CACHE_KEY = 'g2g_social_stats_v3';
+const SOCIAL_CACHE_TIME_KEY = 'g2g_social_stats_last_fetch_v3';
 
 function compactSocialNumber(value) {
   const n = Number(value);
@@ -3704,24 +3748,32 @@ function setSocialStatus(text, state) {
 function applySocialStats(data) {
   if (!data || typeof data !== 'object') return;
 
-  const fb = Number(data.facebookFollowers);
-  const ig = Number(data.instagramFollowers);
-  const rating = Number(data.googleRating);
-  const reviews = Number(data.googleReviewCount);
+  const fb = Number(
+    data.facebookFollowers ?? data.facebook ?? data.fbFollowers ?? data.fb
+  );
+  const ig = Number(
+    data.instagramFollowers ?? data.instagram ?? data.igFollowers ?? data.ig
+  );
+  const rating = Number(
+    data.googleRating ?? data.rating ?? data.googleMapsRating
+  );
+  const reviews = Number(
+    data.googleReviewCount ?? data.googleReviews ?? data.reviewCount ?? data.reviews
+  );
 
-  if (Number.isFinite(fb)) {
+  if (Number.isFinite(fb) && fb > 0) {
     setText('facebookFollowers', fb.toLocaleString());
     setText('facebookChartValue', compactSocialNumber(fb));
     setText('topFacebookFollowers', compactSocialNumber(fb));
   }
 
-  if (Number.isFinite(ig)) {
+  if (Number.isFinite(ig) && ig > 0) {
     setText('instagramFollowers', compactSocialNumber(ig));
     setText('instagramChartValue', compactSocialNumber(ig));
     setText('topInstagramFollowers', compactSocialNumber(ig));
   }
 
-  if (Number.isFinite(rating)) {
+  if (Number.isFinite(rating) && rating > 0) {
     const r = rating.toFixed(1);
     setText('googleRating', r);
     setText('overallRatingValue', r);
@@ -3731,7 +3783,7 @@ function applySocialStats(data) {
     if (bar) bar.style.width = Math.max(0, Math.min(100, rating / 5 * 100)) + '%';
   }
 
-  if (Number.isFinite(reviews)) {
+  if (Number.isFinite(reviews) && reviews > 0) {
     setText('googleReviewCount', reviews.toLocaleString() + ' Google reviews');
     setText('googleMapsCount', reviews.toLocaleString() + '+');
   }
@@ -3777,7 +3829,7 @@ async function refreshSocialStats(force = false) {
     return;
   }
 
-  setSocialStatus('Refreshing live social statistics…', 'is-loading');
+  setSocialStatus('Pulling the latest social statistics now…', 'is-loading');
 
   try {
     const url = SOCIAL_STATS_ENDPOINT
@@ -3792,10 +3844,12 @@ async function refreshSocialStats(force = false) {
 
     if (!response.ok) throw new Error('HTTP ' + response.status);
 
-    const data = await response.json();
-    if (!data || data.ok === false) {
-      throw new Error(data && data.error ? data.error : 'Invalid social stats response');
+    const raw = await response.json();
+    if (!raw || raw.ok === false) {
+      throw new Error(raw && raw.error ? raw.error : 'Invalid social stats response');
     }
+
+    const data = (raw.data && typeof raw.data === 'object') ? raw.data : raw;
 
     applySocialStats(data);
     saveSocialStats(data);
@@ -3815,6 +3869,12 @@ async function refreshSocialStats(force = false) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+  applySocialStats({
+    facebookFollowers: 3534,
+    instagramFollowers: 11000,
+    googleRating: 4.8,
+    googleReviewCount: 144
+  });
   loadCachedSocialStats();
   refreshSocialStats(false);
 
