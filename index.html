@@ -3669,12 +3669,14 @@ document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
 
 
 <script>
-/* LIVE SOCIAL / GOOGLE STATS
-   Paste your deployed Google Apps Script Web App URL below.
-   The browser refreshes the values on page load and every 24 hours.
+/* LIVE SOCIAL / GOOGLE STATS — HARDCODED GOOGLE APPS SCRIPT
+   Fetches fresh social stats at most once every 24 hours per browser.
+   Cached values are restored immediately on reload, then refreshed when due.
 */
 const SOCIAL_STATS_ENDPOINT = 'https://script.google.com/macros/s/AKfycbw1esnzba3KXlRU3qx8JRxchrNuu1Om7xOF13khM3KFWiNCQU5yN8S7JdeWQ36Ie4k/exec';
 const SOCIAL_REFRESH_MS = 24 * 60 * 60 * 1000;
+const SOCIAL_CACHE_KEY = 'g2g_social_stats_v2';
+const SOCIAL_CACHE_TIME_KEY = 'g2g_social_stats_last_fetch_v2';
 
 function compactSocialNumber(value) {
   const n = Number(value);
@@ -3699,59 +3701,127 @@ function setSocialStatus(text, state) {
   if (stamp) stamp.textContent = text;
 }
 
-async function refreshSocialStats() {
-  if (!SOCIAL_STATS_ENDPOINT || SOCIAL_STATS_ENDPOINT.includes('PASTE_GOOGLE')) {
-    setSocialStatus('Connect the Google Apps Script URL to enable live 24-hour updates.', 'is-error');
+function applySocialStats(data) {
+  if (!data || typeof data !== 'object') return;
+
+  const fb = Number(data.facebookFollowers);
+  const ig = Number(data.instagramFollowers);
+  const rating = Number(data.googleRating);
+  const reviews = Number(data.googleReviewCount);
+
+  if (Number.isFinite(fb)) {
+    setText('facebookFollowers', fb.toLocaleString());
+    setText('facebookChartValue', compactSocialNumber(fb));
+    setText('topFacebookFollowers', compactSocialNumber(fb));
+  }
+
+  if (Number.isFinite(ig)) {
+    setText('instagramFollowers', compactSocialNumber(ig));
+    setText('instagramChartValue', compactSocialNumber(ig));
+    setText('topInstagramFollowers', compactSocialNumber(ig));
+  }
+
+  if (Number.isFinite(rating)) {
+    const r = rating.toFixed(1);
+    setText('googleRating', r);
+    setText('overallRatingValue', r);
+    setText('topGoogleRating', r);
+
+    const bar = document.getElementById('overallRatingBar');
+    if (bar) bar.style.width = Math.max(0, Math.min(100, rating / 5 * 100)) + '%';
+  }
+
+  if (Number.isFinite(reviews)) {
+    setText('googleReviewCount', reviews.toLocaleString() + ' Google reviews');
+    setText('googleMapsCount', reviews.toLocaleString() + '+');
+  }
+}
+
+function loadCachedSocialStats() {
+  try {
+    const cached = localStorage.getItem(SOCIAL_CACHE_KEY);
+    if (!cached) return false;
+    const data = JSON.parse(cached);
+    applySocialStats(data);
+    return true;
+  } catch (err) {
+    console.warn('Unable to restore cached social stats:', err);
+    return false;
+  }
+}
+
+function getLastSocialFetch() {
+  try {
+    return Number(localStorage.getItem(SOCIAL_CACHE_TIME_KEY) || 0);
+  } catch (_) {
+    return 0;
+  }
+}
+
+function saveSocialStats(data) {
+  try {
+    localStorage.setItem(SOCIAL_CACHE_KEY, JSON.stringify(data));
+    localStorage.setItem(SOCIAL_CACHE_TIME_KEY, String(Date.now()));
+  } catch (err) {
+    console.warn('Unable to cache social stats:', err);
+  }
+}
+
+async function refreshSocialStats(force = false) {
+  const lastFetch = getLastSocialFetch();
+  const age = Date.now() - lastFetch;
+
+  if (!force && lastFetch && age < SOCIAL_REFRESH_MS) {
+    const nextRefresh = new Date(lastFetch + SOCIAL_REFRESH_MS);
+    setSocialStatus('Next automatic update ' + nextRefresh.toLocaleString(), '');
     return;
   }
 
-  setSocialStatus('Refreshing live statistics…', 'is-loading');
+  setSocialStatus('Refreshing live social statistics…', 'is-loading');
+
   try {
-    const url = SOCIAL_STATS_ENDPOINT + (SOCIAL_STATS_ENDPOINT.includes('?') ? '&' : '?') + 'action=socialStats&_=' + Date.now();
-    const response = await fetch(url, { method:'GET', cache:'no-store' });
+    const url = SOCIAL_STATS_ENDPOINT
+      + (SOCIAL_STATS_ENDPOINT.includes('?') ? '&' : '?')
+      + 'action=socialStats&_=' + Date.now();
+
+    const response = await fetch(url, {
+      method: 'GET',
+      cache: 'no-store',
+      redirect: 'follow'
+    });
+
     if (!response.ok) throw new Error('HTTP ' + response.status);
+
     const data = await response.json();
-    if (!data || data.ok === false) throw new Error(data && data.error ? data.error : 'Invalid response');
+    if (!data || data.ok === false) {
+      throw new Error(data && data.error ? data.error : 'Invalid social stats response');
+    }
 
-    const fb = Number(data.facebookFollowers);
-    const ig = Number(data.instagramFollowers);
-    const rating = Number(data.googleRating);
-    const reviews = Number(data.googleReviewCount);
-
-    if (Number.isFinite(fb)) {
-      setText('facebookFollowers', fb.toLocaleString());
-      setText('facebookChartValue', compactSocialNumber(fb));
-      setText('topFacebookFollowers', compactSocialNumber(fb));
-    }
-    if (Number.isFinite(ig)) {
-      setText('instagramFollowers', compactSocialNumber(ig));
-      setText('instagramChartValue', compactSocialNumber(ig));
-      setText('topInstagramFollowers', compactSocialNumber(ig));
-    }
-    if (Number.isFinite(rating)) {
-      const r = rating.toFixed(1);
-      setText('googleRating', r);
-      setText('overallRatingValue', r);
-      setText('topGoogleRating', r);
-      const bar = document.getElementById('overallRatingBar');
-      if (bar) bar.style.width = Math.max(0, Math.min(100, rating / 5 * 100)) + '%';
-    }
-    if (Number.isFinite(reviews)) {
-      setText('googleReviewCount', reviews.toLocaleString() + ' Google reviews');
-      setText('googleMapsCount', reviews.toLocaleString() + '+');
-    }
+    applySocialStats(data);
+    saveSocialStats(data);
 
     const updated = data.updatedAt ? new Date(data.updatedAt) : new Date();
     setSocialStatus('Last updated ' + updated.toLocaleString(), '');
   } catch (err) {
     console.warn('Social stats refresh failed:', err);
-    setSocialStatus('Live refresh unavailable — showing the last saved values.', 'is-error');
+    const hadCache = loadCachedSocialStats();
+    setSocialStatus(
+      hadCache
+        ? 'Live refresh unavailable — showing the last saved values.'
+        : 'Social statistics are temporarily unavailable.',
+      'is-error'
+    );
   }
 }
 
-document.addEventListener('DOMContentLoaded', function(){
-  refreshSocialStats();
-  setInterval(refreshSocialStats, SOCIAL_REFRESH_MS);
+document.addEventListener('DOMContentLoaded', function() {
+  loadCachedSocialStats();
+  refreshSocialStats(false);
+
+  /* Keep an open page synchronized too. */
+  setInterval(function() {
+    refreshSocialStats(false);
+  }, 60 * 60 * 1000);
 });
 </script>
 
